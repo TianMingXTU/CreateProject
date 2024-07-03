@@ -1,0 +1,249 @@
+import sys
+import os
+import json
+import yaml
+import re
+import gettext
+from PyQt5.QtWidgets import (
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QPushButton,
+    QFileDialog,
+    QMessageBox,
+    QTextEdit,
+    QProgressBar,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon
+
+# 国际化支持
+gettext.bindtextdomain("messages", "locale")
+gettext.textdomain("messages")
+_ = gettext.gettext
+
+
+class DirectoryCreator(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle(_("File Directory Structure Creator"))
+        self.setGeometry(100, 100, 600, 500)
+        self.setWindowIcon(QIcon("icon.png"))  # 设置图标
+
+        layout = QVBoxLayout()
+
+        self.input_area = QTextEdit(self)
+        self.input_area.setPlaceholderText(
+            _("Enter your directory structure in the specified format here")
+        )
+        layout.addWidget(self.input_area)
+
+        self.button_import = QPushButton(_("Import Structure"), self)
+        self.button_import.clicked.connect(self.import_structure)
+        layout.addWidget(self.button_import)
+
+        self.button_export = QPushButton(_("Export Structure"), self)
+        self.button_export.clicked.connect(self.export_structure)
+        layout.addWidget(self.button_export)
+
+        self.button_save = QPushButton(_("Choose Directory to Save"), self)
+        self.button_save.clicked.connect(self.choose_directory)
+        layout.addWidget(self.button_save)
+
+        self.button_info = QPushButton(_("Author's Notes"), self)
+        self.button_info.clicked.connect(self.show_notes)
+        layout.addWidget(self.button_info)
+
+        self.progress = QProgressBar(self)
+        self.progress.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.progress)
+
+        self.setLayout(layout)
+        self.setStyleSheet(
+            """
+            QWidget {
+                font-family: Arial;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #5DADE2;
+                color: white;
+                border-radius: 5px;
+                padding: 10px;
+            }
+            QPushButton:hover {
+                background-color: #3498DB;
+            }
+            QTextEdit {
+                border: 1px solid #D5D8DC;
+                border-radius: 5px;
+                padding: 10px;
+            }
+            QProgressBar {
+                border: 1px solid #D5D8DC;
+                border-radius: 5px;
+                text-align: center;
+            }
+        """
+        )
+
+    def import_structure(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getOpenFileName(
+            self,
+            _("Open File"),
+            "",
+            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;All Files (*)"),
+            options=options,
+        )
+        if file_name:
+            try:
+                with open(file_name, "r", encoding="utf-8") as file:
+                    if file_name.endswith((".yaml", ".yml")):
+                        structure = yaml.safe_load(file)
+                    else:
+                        structure = json.load(file)
+                    self.input_area.setPlainText(self.structure_to_text(structure))
+            except Exception as e:
+                QMessageBox.critical(
+                    self, _("Error"), _("Failed to load the file: ") + str(e)
+                )
+
+    def export_structure(self):
+        options = QFileDialog.Options()
+        file_name, _ = QFileDialog.getSaveFileName(
+            self,
+            _("Save File"),
+            "",
+            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;All Files (*)"),
+            options=options,
+        )
+        if file_name:
+            try:
+                structure = self.parse_structure(self.input_area.toPlainText())
+                with open(file_name, "w", encoding="utf-8") as file:
+                    if file_name.endswith((".yaml", ".yml")):
+                        yaml.dump(structure, file)
+                    else:
+                        json.dump(structure, file, indent=4)
+            except Exception as e:
+                QMessageBox.critical(
+                    self, _("Error"), _("Failed to save the file: ") + str(e)
+                )
+
+    def choose_directory(self):
+        directory = QFileDialog.getExistingDirectory(self, _("Select Directory"))
+        if directory:
+            try:
+                input_text = self.input_area.toPlainText()
+                if self.validate_input(input_text):
+                    structure = self.parse_structure(input_text)
+                    if structure:
+                        self.progress.setValue(0)
+                        self.create_structure(
+                            directory, structure, progress_callback=self.update_progress
+                        )
+                        self.progress.setValue(100)
+                        QMessageBox.information(
+                            self,
+                            _("Success"),
+                            _("Directory structure created successfully!"),
+                        )
+                    else:
+                        QMessageBox.warning(
+                            self, _("Warning"), _("No valid structure found!")
+                        )
+                else:
+                    QMessageBox.warning(self, _("Warning"), _("Invalid input format!"))
+            except Exception as e:
+                QMessageBox.critical(
+                    self, _("Error"), _("An error occurred: ") + str(e)
+                )
+
+    def validate_input(self, text):
+        pattern = re.compile(r"^[│├└─ ]*(.+?)/?$")
+        for line in text.splitlines():
+            if not pattern.match(line):
+                return False
+        return True
+
+    def parse_structure(self, text):
+        lines = text.splitlines()
+        structure = {}
+        stack = [(structure, -1)]
+
+        for line in lines:
+            stripped_line = line.lstrip("│├└─ ")
+            indent = len(line) - len(stripped_line)
+            name = stripped_line.strip()
+            level = indent // 4
+
+            if name.endswith("/"):
+                name = name[:-1]
+                new_dict = {}
+                while stack and stack[-1][1] >= level:
+                    stack.pop()
+                stack[-1][0][name] = new_dict
+                stack.append((new_dict, level))
+            else:
+                while stack and stack[-1][1] >= level:
+                    stack.pop()
+                stack[-1][0][name] = ""
+
+        return structure
+
+    def create_structure(self, base_path, structure, progress_callback=None):
+        total_items = sum([len(v) for v in structure.values()])
+        processed_items = 0
+
+        def _create(path, structure):
+            nonlocal processed_items
+            for name, content in structure.items():
+                item_path = os.path.join(path, name)
+                if isinstance(content, dict):
+                    os.makedirs(item_path, exist_ok=True)
+                    _create(item_path, content)
+                else:
+                    with open(item_path, "w") as f:
+                        f.write(content)
+                processed_items += 1
+                if progress_callback:
+                    progress_callback(processed_items / total_items * 100)
+
+        _create(base_path, structure)
+
+    def update_progress(self, value):
+        self.progress.setValue(value)
+
+    def structure_to_text(self, structure, indent=0):
+        lines = []
+        for key, value in structure.items():
+            prefix = " " * indent + ("├── " if indent > 0 else "")
+            if isinstance(value, dict):
+                lines.append(f"{prefix}{key}/")
+                lines.extend(self.structure_to_text(value, indent + 4))
+            else:
+                lines.append(f"{prefix}{key}")
+        return "\n".join(lines)
+
+    def show_notes(self):
+        QMessageBox.information(
+            self,
+            _("Author's Notes"),
+            _(
+                "This tool was created to help developers quickly set up their project directory structures. If you have any questions or feedback, please reach out to the author. Happy coding!"
+            ),
+        )
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    ex = DirectoryCreator()
+    ex.show()
+    sys.exit(app.exec_())
