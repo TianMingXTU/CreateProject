@@ -1,4 +1,5 @@
 # 使用chatGPT等大模型开发者的便利
+![image](https://github.com/TianMingXTU/CreateProject/assets/119733416/a6a414a3-af05-45f1-a6cc-4f4fd72b274d)
 
 ## 使用说明
 
