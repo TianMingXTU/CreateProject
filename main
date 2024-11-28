@@ -13,12 +13,12 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QTextEdit,
     QProgressBar,
-    QInputDialog,
-    QLabel,
-    QLineEdit,
+    QComboBox,
+    QCheckBox,
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QIcon
+from xml_handler import xml_to_dict, dict_to_xml  # 引入模块化的 XML 功能
 
 # 国际化支持
 gettext.bindtextdomain("messages", "locale")
@@ -29,6 +29,7 @@ _ = gettext.gettext
 class DirectoryCreator(QWidget):
     def __init__(self):
         super().__init__()
+        self.dark_mode = False  # 默认浅色模式
         self.initUI()
 
     def initUI(self):
@@ -43,6 +44,20 @@ class DirectoryCreator(QWidget):
             _("Enter your directory structure in the specified format here")
         )
         layout.addWidget(self.input_area)
+
+        self.template_selector = QComboBox(self)
+        self.template_selector.addItem(_("Select a Template"))
+        self.template_selector.addItem(_("Basic Python Project"))
+        self.template_selector.addItem(_("Web Development Project"))
+        self.template_selector.addItem(_("Machine Learning Project"))
+        self.template_selector.addItem(_("Frontend Project"))
+        self.template_selector.addItem(_("Backend Project"))
+        self.template_selector.currentIndexChanged.connect(self.load_template)
+        layout.addWidget(self.template_selector)
+
+        self.dark_mode_toggle = QCheckBox(_("Enable Dark Mode"), self)
+        self.dark_mode_toggle.stateChanged.connect(self.toggle_dark_mode)
+        layout.addWidget(self.dark_mode_toggle)
 
         self.button_import = QPushButton(_("Import Structure"), self)
         self.button_import.clicked.connect(self.import_structure)
@@ -65,33 +80,132 @@ class DirectoryCreator(QWidget):
         layout.addWidget(self.progress)
 
         self.setLayout(layout)
-        self.setStyleSheet(
+        self.apply_stylesheet()
+
+    def apply_stylesheet(self):
+        if self.dark_mode:
+            self.setStyleSheet(
+                """
+                QWidget {
+                    font-family: Arial;
+                    font-size: 14px;
+                    background-color: #2C2C2C;
+                    color: #FFFFFF;
+                }
+                QPushButton {
+                    background-color: #5DADE2;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 10px;
+                }
+                QPushButton:hover {
+                    background-color: #3498DB;
+                }
+                QTextEdit {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    padding: 10px;
+                    background-color: #3C3C3C;
+                    color: #FFFFFF;
+                }
+                QProgressBar {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    text-align: center;
+                    background-color: #3C3C3C;
+                    color: #FFFFFF;
+                }
+                QComboBox {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    padding: 5px;
+                    background-color: #3C3C3C;
+                    color: #FFFFFF;
+                }
+                QCheckBox {
+                    color: #FFFFFF;
+                }
             """
-            QWidget {
-                font-family: Arial;
-                font-size: 14px;
-            }
-            QPushButton {
-                background-color: #5DADE2;
-                color: white;
-                border-radius: 5px;
-                padding: 10px;
-            }
-            QPushButton:hover {
-                background-color: #3498DB;
-            }
-            QTextEdit {
-                border: 1px solid #D5D8DC;
-                border-radius: 5px;
-                padding: 10px;
-            }
-            QProgressBar {
-                border: 1px solid #D5D8DC;
-                border-radius: 5px;
-                text-align: center;
-            }
-        """
-        )
+            )
+        else:
+            self.setStyleSheet(
+                """
+                QWidget {
+                    font-family: Arial;
+                    font-size: 14px;
+                }
+                QPushButton {
+                    background-color: #5DADE2;
+                    color: white;
+                    border-radius: 5px;
+                    padding: 10px;
+                }
+                QPushButton:hover {
+                    background-color: #3498DB;
+                }
+                QTextEdit {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    padding: 10px;
+                }
+                QProgressBar {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    text-align: center;
+                }
+                QComboBox {
+                    border: 1px solid #D5D8DC;
+                    border-radius: 5px;
+                    padding: 5px;
+                }
+                QCheckBox {
+                    color: #000000;
+                }
+            """
+            )
+
+    def toggle_dark_mode(self, state):
+        self.dark_mode = state == Qt.Checked
+        self.apply_stylesheet()
+
+    def load_template(self, index):
+        templates = {
+            1: {
+                "src/": {
+                    "main.py": "",
+                    "utils/": {"helper.py": "", "logger.py": ""},
+                },
+                "tests/": {"test_main.py": ""},
+                "README.md": "",
+                "requirements.txt": "",
+            },
+            2: {
+                "static/": {"css/": {}, "js/": {}, "images/": {}},
+                "templates/": {"index.html": ""},
+                "app.py": "",
+                "README.md": "",
+                "requirements.txt": "",
+            },
+            3: {
+                "data/": {"raw/": {}, "processed/": {}},
+                "notebooks/": {"exploration.ipynb": ""},
+                "models/": {},
+                "README.md": "",
+                "requirements.txt": "",
+            },
+            4: {
+                "src/": {"index.html": "", "style.css": "", "script.js": ""},
+                "README.md": "",
+                "package.json": "",
+            },
+            5: {
+                "src/": {"app.js": "", "routes/": {}, "models/": {}},
+                "README.md": "",
+                "package.json": "",
+            },
+        }
+        if index in templates:
+            self.input_area.setPlainText(self.structure_to_text(templates[index]))
 
     def import_structure(self):
         options = QFileDialog.Options()
@@ -99,7 +213,7 @@ class DirectoryCreator(QWidget):
             self,
             _("Open File"),
             "",
-            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;All Files (*)"),
+            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;XML Files (*.xml);;All Files (*)"),
             options=options,
         )
         if file_name:
@@ -107,6 +221,8 @@ class DirectoryCreator(QWidget):
                 with open(file_name, "r", encoding="utf-8") as file:
                     if file_name.endswith((".yaml", ".yml")):
                         structure = yaml.safe_load(file)
+                    elif file_name.endswith(".xml"):
+                        structure = xml_to_dict(ET.parse(file).getroot())
                     else:
                         structure = json.load(file)
                     self.input_area.setPlainText(self.structure_to_text(structure))
@@ -121,7 +237,7 @@ class DirectoryCreator(QWidget):
             self,
             _("Save File"),
             "",
-            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;All Files (*)"),
+            _("JSON Files (*.json);;YAML Files (*.yaml *.yml);;XML Files (*.xml);;All Files (*)"),
             options=options,
         )
         if file_name:
@@ -130,6 +246,8 @@ class DirectoryCreator(QWidget):
                 with open(file_name, "w", encoding="utf-8") as file:
                     if file_name.endswith((".yaml", ".yml")):
                         yaml.dump(structure, file)
+                    elif file_name.endswith(".xml"):
+                        file.write(dict_to_xml(structure))
                     else:
                         json.dump(structure, file, indent=4)
             except Exception as e:
